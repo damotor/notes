@@ -63,6 +63,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -185,24 +186,23 @@ class SearchVisualTransformation(
     private val currentIndex: Int
 ) : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {
+        if (query.isEmpty() || results.isEmpty()) return TransformedText(text, OffsetMapping.Identity)
+
         val annotatedString = buildAnnotatedString {
             append(text.text)
-            
-            // Search highlights
-            if (query.isNotEmpty()) {
-                results.forEachIndexed { index, range ->
-                    val start = range.first.coerceIn(0, text.length)
-                    val end = (range.last + 1).coerceIn(0, text.length)
-                    if (start < end) {
-                        addStyle(
-                            style = SpanStyle(
-                                background = if (index == currentIndex) Color(0xFFFFCC00) else Color(0xFF666600),
-                                color = Color.Black
-                            ),
-                            start = start,
-                            end = end
-                        )
-                    }
+            val textLength = text.length
+            results.forEachIndexed { index, range ->
+                val start = range.first
+                val end = range.last + 1
+                if (start < textLength && end <= textLength && start < end) {
+                    addStyle(
+                        style = SpanStyle(
+                            background = if (index == currentIndex) Color(0xFFFFCC00) else Color(0xFF666600),
+                            color = Color.Black
+                        ),
+                        start = start,
+                        end = end
+                    )
                 }
             }
         }
@@ -233,7 +233,6 @@ fun TextEditorApp(intent: Intent? = null) {
 
     // Track last captured text for debounced undo
     var lastSnapshotText by remember { mutableStateOf("") }
-    var undoJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     // Search state
     var searchQuery by remember { mutableStateOf("") }
@@ -244,10 +243,15 @@ fun TextEditorApp(intent: Intent? = null) {
 
     val prefs = remember { context.getSharedPreferences("recent_files", Context.MODE_PRIVATE) }
 
+    // Derived states to prevent unnecessary recompositions of the entire UI on every keystroke
+    val canUndo by remember { derivedStateOf { undoStack.isNotEmpty() } }
+    val canRedo by remember { derivedStateOf { redoStack.isNotEmpty() } }
+    val hasSelection by remember { derivedStateOf { !textFieldValue.selection.collapsed } }
+
     fun performSearch(query: String, text: String, caseSensitive: Boolean) {
         if (query.isEmpty()) {
-            searchResults = emptyList()
-            currentSearchIndex = -1
+            if (searchResults.isNotEmpty()) searchResults = emptyList()
+            if (currentSearchIndex != -1) currentSearchIndex = -1
             return
         }
         val results = mutableListOf<IntRange>()
@@ -378,24 +382,19 @@ fun TextEditorApp(intent: Intent? = null) {
         if (searchIsVisible && searchQuery.isNotEmpty()) {
             delay(300)
             performSearch(searchQuery, textFieldValue.text, searchCaseSensitive)
-        } else if (!searchIsVisible || searchQuery.isEmpty()) {
-            searchResults = emptyList()
-            currentSearchIndex = -1
+        } else {
+            if (searchResults.isNotEmpty()) searchResults = emptyList()
+            if (currentSearchIndex != -1) currentSearchIndex = -1
         }
     }
 
-    // Debounce undo snapshots
+    // Debounce undo snapshots - using delay in LaunchedEffect avoids redundant state updates
     LaunchedEffect(textFieldValue.text) {
         if (textFieldValue.text == lastSnapshotText) return@LaunchedEffect
-        
-        undoJob?.cancel()
-        undoJob = scope.launch {
-            delay(1500) // Wait for typing pause
-            undoStack.add(lastSnapshotText)
-            if (undoStack.size > 100) undoStack.removeAt(0)
-            lastSnapshotText = textFieldValue.text
-            undoJob = null
-        }
+        delay(1500) // Wait for typing pause
+        undoStack.add(lastSnapshotText)
+        if (undoStack.size > 100) undoStack.removeAt(0)
+        lastSnapshotText = textFieldValue.text
     }
 
     fun undo() {
@@ -522,13 +521,21 @@ fun TextEditorApp(intent: Intent? = null) {
                         keyboardController?.show()
                     }
             ) {
+                val visualTransformation = remember(searchQuery, searchResults, currentSearchIndex, searchIsVisible) {
+                    if (searchIsVisible && searchQuery.isNotEmpty() && searchResults.isNotEmpty()) {
+                        SearchVisualTransformation(searchQuery, searchResults, currentSearchIndex)
+                    } else {
+                        VisualTransformation.None
+                    }
+                }
+
                 BasicTextField(
                     value = textFieldValue,
                     onValueChange = {
                         val oldText = textFieldValue.text
                         textFieldValue = it
                         if (it.text != oldText) {
-                            redoStack.clear()
+                            if (redoStack.isNotEmpty()) redoStack.clear()
                             isDirty = true
                         }
                     },
@@ -541,7 +548,7 @@ fun TextEditorApp(intent: Intent? = null) {
                     textStyle = TextStyle(color = Color.White, fontSize = 18.sp),
                     cursorBrush = SolidColor(Color.White),
                     onTextLayout = { textLayoutResult = it },
-                    visualTransformation = SearchVisualTransformation(searchQuery, searchResults, currentSearchIndex),
+                    visualTransformation = visualTransformation,
                     decorationBox = { innerTextField ->
                         Box(modifier = Modifier.padding(16.dp)) {
                             if (textFieldValue.text.isEmpty()) {
@@ -629,17 +636,17 @@ fun TextEditorApp(intent: Intent? = null) {
                 IconButton(onClick = { openLauncher.launch(arrayOf("*/*")) }) {
                     Icon(Icons.Default.FileOpen, "Open File", tint = Color.White)
                 }
-                IconButton(onClick = { undo() }, enabled = undoStack.isNotEmpty()) {
-                    Icon(Icons.AutoMirrored.Filled.Undo, "Undo", tint = if (undoStack.isNotEmpty()) Color.White else Color.Gray)
+                IconButton(onClick = { undo() }, enabled = canUndo) {
+                    Icon(Icons.AutoMirrored.Filled.Undo, "Undo", tint = if (canUndo) Color.White else Color.Gray)
                 }
-                IconButton(onClick = { redo() }, enabled = redoStack.isNotEmpty()) {
-                    Icon(Icons.AutoMirrored.Filled.Redo, "Redo", tint = if (redoStack.isNotEmpty()) Color.White else Color.Gray)
+                IconButton(onClick = { redo() }, enabled = canRedo) {
+                    Icon(Icons.AutoMirrored.Filled.Redo, "Redo", tint = if (canRedo) Color.White else Color.Gray)
                 }
-                IconButton(onClick = { cut() }, enabled = !textFieldValue.selection.collapsed) {
-                    Icon(Icons.Default.ContentCut, "Cut", tint = if (!textFieldValue.selection.collapsed) Color.White else Color.Gray)
+                IconButton(onClick = { cut() }, enabled = hasSelection) {
+                    Icon(Icons.Default.ContentCut, "Cut", tint = if (hasSelection) Color.White else Color.Gray)
                 }
-                IconButton(onClick = { copy() }, enabled = !textFieldValue.selection.collapsed) {
-                    Icon(Icons.Default.ContentCopy, "Copy", tint = if (!textFieldValue.selection.collapsed) Color.White else Color.Gray)
+                IconButton(onClick = { copy() }, enabled = hasSelection) {
+                    Icon(Icons.Default.ContentCopy, "Copy", tint = if (hasSelection) Color.White else Color.Gray)
                 }
                 IconButton(onClick = { paste() }) {
                     Icon(Icons.Default.ContentPaste, "Paste", tint = Color.White)
