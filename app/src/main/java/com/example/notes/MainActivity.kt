@@ -233,6 +233,7 @@ fun TextEditorApp(intent: Intent? = null) {
 
     // Track last captured text for debounced undo
     var lastSnapshotText by remember { mutableStateOf("") }
+    var undoJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     // Search state
     var searchQuery by remember { mutableStateOf("") }
@@ -251,7 +252,7 @@ fun TextEditorApp(intent: Intent? = null) {
         }
         val results = mutableListOf<IntRange>()
         var index = text.indexOf(query, 0, ignoreCase = !caseSensitive)
-        while (index >= 0) {
+        while (index >= 0 && results.size < 1000) { // Limit results to prevent performance issues
             results.add(index until index + query.length)
             index = text.indexOf(query, index + 1, ignoreCase = !caseSensitive)
         }
@@ -387,10 +388,14 @@ fun TextEditorApp(intent: Intent? = null) {
     LaunchedEffect(textFieldValue.text) {
         if (textFieldValue.text == lastSnapshotText) return@LaunchedEffect
         
-        delay(1000) // Wait for typing pause
-        undoStack.add(lastSnapshotText)
-        if (undoStack.size > 100) undoStack.removeAt(0)
-        lastSnapshotText = textFieldValue.text
+        undoJob?.cancel()
+        undoJob = scope.launch {
+            delay(1500) // Wait for typing pause
+            undoStack.add(lastSnapshotText)
+            if (undoStack.size > 100) undoStack.removeAt(0)
+            lastSnapshotText = textFieldValue.text
+            undoJob = null
+        }
     }
 
     fun undo() {
