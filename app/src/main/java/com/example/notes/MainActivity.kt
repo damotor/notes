@@ -185,19 +185,25 @@ class SearchVisualTransformation(
     private val currentIndex: Int
 ) : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {
-        if (query.isEmpty() || results.isEmpty()) return TransformedText(text, OffsetMapping.Identity)
-
         val annotatedString = buildAnnotatedString {
             append(text.text)
-            results.forEachIndexed { index, range ->
-                addStyle(
-                    style = SpanStyle(
-                        background = if (index == currentIndex) Color(0xFFFFCC00) else Color(0xFF666600),
-                        color = Color.Black
-                    ),
-                    start = range.first,
-                    end = range.last + 1
-                )
+            
+            // Search highlights
+            if (query.isNotEmpty()) {
+                results.forEachIndexed { index, range ->
+                    val start = range.first.coerceIn(0, text.length)
+                    val end = (range.last + 1).coerceIn(0, text.length)
+                    if (start < end) {
+                        addStyle(
+                            style = SpanStyle(
+                                background = if (index == currentIndex) Color(0xFFFFCC00) else Color(0xFF666600),
+                                color = Color.Black
+                            ),
+                            start = start,
+                            end = end
+                        )
+                    }
+                }
             }
         }
         return TransformedText(annotatedString, OffsetMapping.Identity)
@@ -224,6 +230,9 @@ fun TextEditorApp(intent: Intent? = null) {
     var recentFiles by remember { mutableStateOf(listOf<Uri>()) }
     var historyExpanded by remember { mutableStateOf(false) }
     var hasBackedUpForCurrentSession by remember { mutableStateOf(false) }
+
+    // Track last captured text for debounced undo
+    var lastSnapshotText by remember { mutableStateOf("") }
 
     // Search state
     var searchQuery by remember { mutableStateOf("") }
@@ -321,6 +330,7 @@ fun TextEditorApp(intent: Intent? = null) {
                 val reader = BufferedReader(InputStreamReader(inputStream))
                 val content = reader.readText()
                 textFieldValue = TextFieldValue(content)
+                lastSnapshotText = content
                 currentUri = uri
                 isDirty = false
                 hasBackedUpForCurrentSession = false
@@ -357,9 +367,30 @@ fun TextEditorApp(intent: Intent? = null) {
 
     LaunchedEffect(textFieldValue.text, currentUri) {
         if (isDirty && currentUri != null) {
-            delay(3000) // Debounce: wait for 3 seconds of inactivity
+            delay(3000) // Debounce auto-save
             saveFile(currentUri!!, textFieldValue.text)
         }
+    }
+
+    // Debounce search matching
+    LaunchedEffect(textFieldValue.text, searchQuery, searchCaseSensitive, searchIsVisible) {
+        if (searchIsVisible && searchQuery.isNotEmpty()) {
+            delay(300)
+            performSearch(searchQuery, textFieldValue.text, searchCaseSensitive)
+        } else if (!searchIsVisible || searchQuery.isEmpty()) {
+            searchResults = emptyList()
+            currentSearchIndex = -1
+        }
+    }
+
+    // Debounce undo snapshots
+    LaunchedEffect(textFieldValue.text) {
+        if (textFieldValue.text == lastSnapshotText) return@LaunchedEffect
+        
+        delay(1000) // Wait for typing pause
+        undoStack.add(lastSnapshotText)
+        if (undoStack.size > 100) undoStack.removeAt(0)
+        lastSnapshotText = textFieldValue.text
     }
 
     fun undo() {
@@ -367,8 +398,8 @@ fun TextEditorApp(intent: Intent? = null) {
             val last = undoStack.removeAt(undoStack.size - 1)
             redoStack.add(textFieldValue.text)
             textFieldValue = textFieldValue.copy(text = last)
+            lastSnapshotText = last
             isDirty = true
-            if (searchIsVisible) performSearch(searchQuery, last, searchCaseSensitive)
         }
     }
 
@@ -377,8 +408,8 @@ fun TextEditorApp(intent: Intent? = null) {
             val next = redoStack.removeAt(redoStack.size - 1)
             undoStack.add(textFieldValue.text)
             textFieldValue = textFieldValue.copy(text = next)
+            lastSnapshotText = next
             isDirty = true
-            if (searchIsVisible) performSearch(searchQuery, next, searchCaseSensitive)
         }
     }
 
@@ -398,7 +429,6 @@ fun TextEditorApp(intent: Intent? = null) {
             val newText = textFieldValue.text.removeRange(selection.start, selection.end)
             textFieldValue = textFieldValue.copy(text = newText, selection = TextRange(selection.start))
             isDirty = true
-            if (searchIsVisible) performSearch(searchQuery, newText, searchCaseSensitive)
         }
     }
 
@@ -409,7 +439,6 @@ fun TextEditorApp(intent: Intent? = null) {
             val newText = textFieldValue.text.replaceRange(selection.start, selection.end, clipboardText)
             textFieldValue = textFieldValue.copy(text = newText, selection = TextRange(selection.start + clipboardText.length))
             isDirty = true
-            if (searchIsVisible) performSearch(searchQuery, newText, searchCaseSensitive)
         }
     }
 
@@ -417,6 +446,7 @@ fun TextEditorApp(intent: Intent? = null) {
     val createLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { it?.let {
         currentUri = it
         textFieldValue = TextFieldValue("")
+        lastSnapshotText = ""
         saveFile(it, "")
         undoStack.clear()
         redoStack.clear()
@@ -464,16 +494,12 @@ fun TextEditorApp(intent: Intent? = null) {
                                 if (event.changes.any { it.changedToUp() }) {
                                     if (!keyboardVisibleState) {
                                         scope.launch {
-                                            // Wait long enough for keyboard to show and focus scroll to finish
                                             delay(600)
                                             val layout = textLayoutResult ?: return@launch
                                             val offset = textFieldValue.selection.start
                                             if (offset <= layout.layoutInput.text.length) {
                                                 val line = layout.getLineForOffset(offset)
                                                 val lineTop = layout.getLineTop(line)
-
-                                                // The goal is: (lineTop + paddingPx) - scrollValue = visibleHeightPx * 0.25
-                                                // So scrollValue = (lineTop + paddingPx) - (visibleHeightPx * 0.25)
                                                 val targetScroll = (lineTop + paddingPx) - (visibleHeightPx * 0.25f)
                                                 editorScrollState.animateScrollTo(targetScroll.toInt().coerceAtLeast(0))
                                             }
@@ -497,11 +523,8 @@ fun TextEditorApp(intent: Intent? = null) {
                         val oldText = textFieldValue.text
                         textFieldValue = it
                         if (it.text != oldText) {
-                            undoStack.add(oldText)
-                            if (undoStack.size > 100) undoStack.removeAt(0)
                             redoStack.clear()
                             isDirty = true
-                            if (searchIsVisible) performSearch(searchQuery, it.text, searchCaseSensitive)
                         }
                     },
                     modifier = Modifier
@@ -515,7 +538,7 @@ fun TextEditorApp(intent: Intent? = null) {
                     onTextLayout = { textLayoutResult = it },
                     visualTransformation = SearchVisualTransformation(searchQuery, searchResults, currentSearchIndex),
                     decorationBox = { innerTextField ->
-                        Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp)) {
+                        Box(modifier = Modifier.padding(16.dp)) {
                             if (textFieldValue.text.isEmpty()) {
                                 Text("Start typing...", color = Color.Gray, fontSize = 18.sp)
                             }
@@ -526,7 +549,6 @@ fun TextEditorApp(intent: Intent? = null) {
             }
         }
 
-        // Toolbar area at the bottom
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -541,7 +563,7 @@ fun TextEditorApp(intent: Intent? = null) {
                 ) {
                     TextField(
                         value = searchQuery,
-                        onValueChange = { searchQuery = it; performSearch(it, textFieldValue.text, searchCaseSensitive) },
+                        onValueChange = { searchQuery = it },
                         modifier = Modifier.weight(1f),
                         placeholder = { Text("Search...", color = Color.Gray) },
                         singleLine = true,
@@ -551,10 +573,7 @@ fun TextEditorApp(intent: Intent? = null) {
                             cursorColor = Color.White
                         )
                     )
-                    IconButton(onClick = {
-                        searchCaseSensitive = !searchCaseSensitive
-                        performSearch(searchQuery, textFieldValue.text, searchCaseSensitive)
-                    }) {
+                    IconButton(onClick = { searchCaseSensitive = !searchCaseSensitive }) {
                         Icon(Icons.Default.TextFields, "Case Sensitive", tint = if (searchCaseSensitive) Color(0xFFFFCC00) else Color.White)
                     }
                     if (searchResults.isNotEmpty()) {
