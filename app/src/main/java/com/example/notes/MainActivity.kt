@@ -18,7 +18,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
@@ -27,7 +26,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -97,7 +95,6 @@ import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
@@ -110,9 +107,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
 import java.io.File
-import java.io.InputStreamReader
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -179,6 +174,7 @@ fun getReadablePath(context: Context, uri: Uri): String {
     }
 }
 
+@Stable
 class SearchVisualTransformation(
     private val query: String,
     private val results: List<IntRange>,
@@ -195,14 +191,17 @@ class SearchVisualTransformation(
         val annotatedString = buildAnnotatedString {
             append(text.text)
             val textLength = text.length
-            results.forEachIndexed { index, range ->
+            for (i in results.indices) {
+                val range = results[i]
                 val start = range.first
                 val end = range.last + 1
-                if (start < textLength && end <= textLength && start < end) {
+                if (start >= textLength) break
+                val actualEnd = if (end > textLength) textLength else end
+                if (start < actualEnd) {
                     addStyle(
-                        style = if (index == currentIndex) currentStyle else normalStyle,
+                        style = if (i == currentIndex) currentStyle else normalStyle,
                         start = start,
-                        end = end
+                        end = actualEnd
                     )
                 }
             }
@@ -224,8 +223,7 @@ fun EditorContent(
     visualTransformation: VisualTransformation,
     onTextLayout: (TextLayoutResult) -> Unit,
     focusRequester: FocusRequester,
-    bringIntoViewRequester: BringIntoViewRequester,
-    minHeight: Dp
+    bringIntoViewRequester: BringIntoViewRequester
 ) {
     val textStyle = remember { TextStyle(color = Color.White, fontSize = 18.sp) }
     val cursorBrush = remember { SolidColor(Color.White) }
@@ -234,8 +232,7 @@ fun EditorContent(
         value = value,
         onValueChange = onValueChange,
         modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = minHeight)
+            .fillMaxSize()
             .focusRequester(focusRequester)
             .bringIntoViewRequester(bringIntoViewRequester),
         textStyle = textStyle,
@@ -512,14 +509,14 @@ fun TextEditorApp(intent: Intent? = null) {
 
     LaunchedEffect(textFieldValue.text, currentUri) {
         if (isDirty && currentUri != null) {
-            delay(3000)
+            delay(5000)
             saveFile(currentUri!!, textFieldValue.text)
         }
     }
 
     LaunchedEffect(textFieldValue.text, searchQuery, searchCaseSensitive, searchIsVisible) {
         if (searchIsVisible && searchQuery.isNotEmpty()) {
-            delay(100)
+            delay(1500)
             val textToSearch = textFieldValue.text
             val query = searchQuery
             val caseSensitive = searchCaseSensitive
@@ -527,7 +524,7 @@ fun TextEditorApp(intent: Intent? = null) {
             val results = withContext(Dispatchers.Default) {
                 val res = mutableListOf<IntRange>()
                 var index = textToSearch.indexOf(query, 0, ignoreCase = !caseSensitive)
-                while (index >= 0 && res.size < 1000) {
+                while (index >= 0 && res.size < 500) {
                     res.add(index until index + query.length)
                     index = textToSearch.indexOf(query, index + 1, ignoreCase = !caseSensitive)
                 }
@@ -545,9 +542,9 @@ fun TextEditorApp(intent: Intent? = null) {
 
     LaunchedEffect(textFieldValue.text) {
         if (textFieldValue.text == lastSnapshotText) return@LaunchedEffect
-        delay(5000)
+        delay(2000)
         undoStack.add(lastSnapshotText)
-        if (undoStack.size > 100) undoStack.removeAt(0)
+        if (undoStack.size > 50) undoStack.removeAt(0)
         lastSnapshotText = textFieldValue.text
     }
 
@@ -623,6 +620,21 @@ fun TextEditorApp(intent: Intent? = null) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    val onValueChange = remember {
+        { newValue: TextFieldValue ->
+            val old = textFieldValue
+            textFieldValue = newValue
+            if (newValue.text !== old.text) {
+                if (newValue.text.length != old.text.length || newValue.text != old.text) {
+                    if (redoStack.isNotEmpty()) redoStack.clear()
+                    isDirty = true
+                }
+            }
+        }
+    }
+
+    val onTextLayout = remember { { it: TextLayoutResult -> textLayoutHolder.value = it } }
+    
     val isKeyboardVisible = WindowInsets.isImeVisible
     val keyboardVisibleState = rememberUpdatedState(isKeyboardVisible)
 
@@ -632,10 +644,9 @@ fun TextEditorApp(intent: Intent? = null) {
             .background(Color.Black)
             .statusBarsPadding()
     ) {
-        BoxWithConstraints(
+        Box(
             modifier = Modifier.weight(1f)
         ) {
-            val boxMaxHeight = this.maxHeight
             val density = LocalDensity.current
             val paddingPx = with(density) { 16.dp.toPx() }
 
@@ -656,7 +667,7 @@ fun TextEditorApp(intent: Intent? = null) {
                                             if (offset <= layout.layoutInput.text.length) {
                                                 val line = layout.getLineForOffset(offset)
                                                 val lineTop = layout.getLineTop(line)
-                                                val targetScroll = (lineTop + paddingPx) - (this@BoxWithConstraints.constraints.maxHeight * 0.25f)
+                                                val targetScroll = (lineTop + paddingPx) - (size.height * 0.25f)
                                                 editorScrollState.animateScrollTo(targetScroll.toInt().coerceAtLeast(0))
                                             }
                                         }
@@ -683,19 +694,11 @@ fun TextEditorApp(intent: Intent? = null) {
 
                 EditorContent(
                     value = textFieldValue,
-                    onValueChange = { newValue ->
-                        val oldText = textFieldValue.text
-                        textFieldValue = newValue
-                        if (newValue.text != oldText) {
-                            if (redoStack.isNotEmpty()) redoStack.clear()
-                            if (!isDirty) isDirty = true
-                        }
-                    },
+                    onValueChange = onValueChange,
                     visualTransformation = visualTransformation,
-                    onTextLayout = { textLayoutHolder.value = it },
+                    onTextLayout = onTextLayout,
                     focusRequester = focusRequester,
-                    bringIntoViewRequester = bringIntoViewRequester,
-                    minHeight = boxMaxHeight
+                    bringIntoViewRequester = bringIntoViewRequester
                 )
             }
         }
