@@ -78,9 +78,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.changedToUp
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -400,6 +397,7 @@ fun TextEditorApp(intent: Intent? = null) {
     var searchCaseSensitive by remember { mutableStateOf(false) }
 
     val prefs = remember { context.getSharedPreferences("recent_files", Context.MODE_PRIVATE) }
+    val density = LocalDensity.current
 
     val canUndo by remember { derivedStateOf { undoStack.isNotEmpty() } }
     val canRedo by remember { derivedStateOf { redoStack.isNotEmpty() } }
@@ -414,8 +412,9 @@ fun TextEditorApp(intent: Intent? = null) {
                 scope.launch {
                     try {
                         val rect = layout.getBoundingBox(range.first)
+                        val margin = with(density) { 64.dp.toPx() }
                         bringIntoViewRequester.bringIntoView(
-                            Rect(rect.left, rect.top - 50f, rect.right, rect.bottom + 50f)
+                            Rect(rect.left, rect.top - margin, rect.right, rect.bottom + margin)
                         )
                     } catch (e: Exception) {}
                 }
@@ -548,6 +547,31 @@ fun TextEditorApp(intent: Intent? = null) {
         lastSnapshotText = textFieldValue.text
     }
 
+    val isKeyboardVisible = WindowInsets.isImeVisible
+
+    // Keep cursor in view when typing, moving selection, or when keyboard appears
+    LaunchedEffect(textFieldValue.selection, textFieldValue.text, isKeyboardVisible) {
+        // Wait a bit for layout to update
+        delay(50)
+        val layout = textLayoutHolder.value ?: return@LaunchedEffect
+        val offset = textFieldValue.selection.start.coerceIn(0, layout.layoutInput.text.length)
+        
+        val cursorRect = try { layout.getCursorRect(offset) } catch (e: Exception) { null } ?: return@LaunchedEffect
+        
+        // Account for 16dp padding in decoration box and add a generous margin
+        val paddingPx = with(density) { 16.dp.toPx() }
+        val marginPx = with(density) { 56.dp.toPx() }
+        
+        bringIntoViewRequester.bringIntoView(
+            Rect(
+                left = cursorRect.left + paddingPx,
+                top = cursorRect.top + paddingPx - marginPx,
+                right = cursorRect.right + paddingPx,
+                bottom = cursorRect.bottom + paddingPx + marginPx
+            )
+        )
+    }
+
     fun undo() {
         if (undoStack.isNotEmpty()) {
             val last = undoStack.removeAt(undoStack.size - 1)
@@ -635,9 +659,6 @@ fun TextEditorApp(intent: Intent? = null) {
 
     val onTextLayout = remember { { it: TextLayoutResult -> textLayoutHolder.value = it } }
     
-    val isKeyboardVisible = WindowInsets.isImeVisible
-    val keyboardVisibleState = rememberUpdatedState(isKeyboardVisible)
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -647,35 +668,10 @@ fun TextEditorApp(intent: Intent? = null) {
         Box(
             modifier = Modifier.weight(1f)
         ) {
-            val density = LocalDensity.current
-            val paddingPx = with(density) { 16.dp.toPx() }
-
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(editorScrollState)
-                    .pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            while (true) {
-                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                                if (event.changes.any { it.changedToUp() }) {
-                                    if (!keyboardVisibleState.value) {
-                                        scope.launch {
-                                            delay(600)
-                                            val layout = textLayoutHolder.value ?: return@launch
-                                            val offset = textFieldValue.selection.start
-                                            if (offset <= layout.layoutInput.text.length) {
-                                                val line = layout.getLineForOffset(offset)
-                                                val lineTop = layout.getLineTop(line)
-                                                val targetScroll = (lineTop + paddingPx) - (size.height * 0.25f)
-                                                editorScrollState.animateScrollTo(targetScroll.toInt().coerceAtLeast(0))
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
