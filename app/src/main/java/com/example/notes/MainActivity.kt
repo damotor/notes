@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.platform.*
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.input.*
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
@@ -235,18 +236,23 @@ fun TextEditorApp(intent: Intent? = null) {
         CompositionLocalProvider(LocalTextSelectionColors provides customTextSelectionColors) {
             BasicTextField(
                 value = state.value,
-                onValueChange = state::onValueChange,
+                onValueChange = { state.onValueChange(it) },
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(16.dp)
                     .focusRequester(focusRequester),
-                textStyle = TextStyle(color = Color.White, fontSize = 18.sp),
+                textStyle = TextStyle(
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    lineBreak = LineBreak.Paragraph
+                ),
                 cursorBrush = SolidColor(Color.White),
                 visualTransformation = vt,
                 decorationBox = { innerTextField ->
                     if (state.value.text.isEmpty()) {
-                        Text("Start typing...", color = Color.Gray, fontSize = 18.sp)
+                        Text(text = "Start typing...", color = Color.Gray, fontSize = 18.sp)
                     }
                     innerTextField()
                 }
@@ -254,7 +260,7 @@ fun TextEditorApp(intent: Intent? = null) {
         }
         Column(Modifier.fillMaxWidth().background(Color.Black).imePadding().navigationBarsPadding()) {
             if (state.searchVisible) Row(Modifier.fillMaxWidth().background(Color(0xFF222222)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextField(state.searchQuery, { state.searchQuery = it }, Modifier.weight(1f), placeholder = { Text("Search...") }, singleLine = true, colors = TextFieldDefaults.colors(focusedContainerColor = Color.Black, unfocusedContainerColor = Color.Black, focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                TextField(state.searchQuery, { state.searchQuery = it }, Modifier.weight(1f), placeholder = { Text(text = "Search...") }, singleLine = true, colors = TextFieldDefaults.colors(focusedContainerColor = Color.Black, unfocusedContainerColor = Color.Black, focusedTextColor = Color.White, unfocusedTextColor = Color.White))
                 IconButton(onClick = { state.searchCaseSensitive = !state.searchCaseSensitive }) {
                     Icon(Icons.Default.TextFields, contentDescription = "Case Sensitive", tint = if (state.searchCaseSensitive) Color(0xFFFFCC00) else Color.White)
                 }
@@ -314,7 +320,7 @@ fun TextEditorApp(intent: Intent? = null) {
                     onClick = {
                         clipboard.getText()?.text?.let { p ->
                             val s = state.value.selection
-                            state.onValueChange(state.value.copy(text = state.value.text.replaceRange(s.start, s.end, p), selection = TextRange(s.start + p.length)))
+                            state.onValueChange(state.value.copy(text = state.value.text.replaceRange(s.start, s.end, p), selection = TextRange(state.value.selection.start + p.length)))
                         }
                     }
                 ) {
@@ -326,10 +332,10 @@ fun TextEditorApp(intent: Intent? = null) {
             }
             DropdownMenu(historyExpanded, { historyExpanded = false }, Modifier.background(Color.DarkGray)) {
                 if (state.recentFiles.isEmpty()) {
-                    DropdownMenuItem(text = { Text("No recent files", color = Color.White) }, onClick = { historyExpanded = false })
+                    DropdownMenuItem(text = { Text(text = "No recent files", color = Color.White) }, onClick = { historyExpanded = false })
                 }
                 state.recentFiles.forEach { uri ->
-                    DropdownMenuItem(text = { Text(uri.lastPathSegment ?: "file", color = Color.White) }, onClick = { state.open(uri); historyExpanded = false })
+                    DropdownMenuItem(text = { Text(text = uri.lastPathSegment ?: "file", color = Color.White) }, onClick = { state.open(uri); historyExpanded = false })
                 }
             }
             Spacer(Modifier.height(8.dp))
