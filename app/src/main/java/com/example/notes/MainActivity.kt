@@ -168,7 +168,7 @@ fun TextEditorApp(intent: Intent? = null) {
 
     LaunchedEffect(state.value.text, state.uri) {
         if (state.isDirty && state.uri != null) {
-            delay(5000)
+            delay(1000)
             state.save()
         }
     }
