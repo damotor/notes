@@ -10,33 +10,90 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.TextSelectionColors
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.filled.NoteAdd
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.FileOpen
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.*
-import androidx.compose.ui.platform.*
-import androidx.compose.ui.text.*
-import androidx.compose.ui.text.input.*
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import androidx.core.net.toUri
-import androidx.lifecycle.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.notes.ui.theme.NotesTheme
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -52,19 +109,20 @@ class EditorState(val context: Context, val scope: CoroutineScope) {
     var value by mutableStateOf(TextFieldValue(""))
     var uri by mutableStateOf<Uri?>(null)
     var isDirty by mutableStateOf(false)
+    var hasBackedUp by mutableStateOf(false)
     val undoStack = mutableStateListOf<String>()
     val redoStack = mutableStateListOf<String>()
-    var lastSnapshotText = ""
-    var hasBackedUp = false
-    val recentFiles = mutableStateListOf<Uri>()
+    var lastSnapshotText by mutableStateOf("")
+    var openTrigger by mutableIntStateOf(0)
 
     var searchVisible by mutableStateOf(false)
     var searchQuery by mutableStateOf("")
-    var searchResults by mutableStateOf(listOf<IntRange>())
+    var searchResults by mutableStateOf<List<IntRange>>(emptyList())
     var searchIndex by mutableIntStateOf(-1)
     var searchCaseSensitive by mutableStateOf(false)
 
-    private val prefs = context.getSharedPreferences("recent_files", Context.MODE_PRIVATE)
+    val recentFiles = mutableStateListOf<Uri>()
+    private val prefs = context.getSharedPreferences("prefs", Context.MODE_PRIVATE)
 
     fun onValueChange(nv: TextFieldValue) {
         if (nv.text != value.text) {
@@ -116,6 +174,7 @@ class EditorState(val context: Context, val scope: CoroutineScope) {
                 value = TextFieldValue(content)
                 lastSnapshotText = content
                 uri = u
+                openTrigger++
                 isDirty = false
                 hasBackedUp = false
                 undoStack.clear()
@@ -146,14 +205,25 @@ class EditorState(val context: Context, val scope: CoroutineScope) {
 }
 
 @Composable
-fun TextEditorApp(intent: Intent? = null) {
+fun TextEditorApp(
+    intent: Intent? = null,
+    providedState: EditorState? = null
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val state = remember { EditorState(context, scope) }
+    val state = providedState ?: remember { EditorState(context, scope) }
+
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val clipboard = LocalClipboardManager.current
     var historyExpanded by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+
+    LaunchedEffect(state.openTrigger) {
+        if (state.openTrigger > 0) {
+            scrollState.scrollTo(0)
+        }
+    }
 
     val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { it?.let { state.open(it) } }
     val createLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { it?.let { state.uri = it; state.value = TextFieldValue(""); state.save(); state.open(it) } }
@@ -240,9 +310,10 @@ fun TextEditorApp(intent: Intent? = null) {
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(scrollState)
                     .padding(16.dp)
-                    .focusRequester(focusRequester),
+                    .focusRequester(focusRequester)
+                    .testTag("editor"),
                 textStyle = TextStyle(
                     color = Color.White,
                     fontSize = 18.sp,
@@ -260,7 +331,7 @@ fun TextEditorApp(intent: Intent? = null) {
         }
         Column(Modifier.fillMaxWidth().background(Color.Black).imePadding().navigationBarsPadding()) {
             if (state.searchVisible) Row(Modifier.fillMaxWidth().background(Color(0xFF222222)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextField(state.searchQuery, { state.searchQuery = it }, Modifier.weight(1f), placeholder = { Text(text = "Search...") }, singleLine = true, colors = TextFieldDefaults.colors(focusedContainerColor = Color.Black, unfocusedContainerColor = Color.Black, focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                TextField(state.searchQuery, { state.searchQuery = it }, Modifier.weight(1f).testTag("search_field"), placeholder = { Text(text = "Search...") }, singleLine = true, colors = TextFieldDefaults.colors(focusedContainerColor = Color.Black, unfocusedContainerColor = Color.Black, focusedTextColor = Color.White, unfocusedTextColor = Color.White))
                 IconButton(onClick = { state.searchCaseSensitive = !state.searchCaseSensitive }) {
                     Icon(Icons.Default.TextFields, contentDescription = "Case Sensitive", tint = if (state.searchCaseSensitive) Color(0xFFFFCC00) else Color.White)
                 }
@@ -278,7 +349,7 @@ fun TextEditorApp(intent: Intent? = null) {
                 }
             }
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).background(Color(0xFF111111)).padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
-                IconButton(onClick = { historyExpanded = true }) {
+                IconButton(onClick = { historyExpanded = true }, modifier = Modifier.testTag("history_button")) {
                     Icon(Icons.Default.History, contentDescription = "Recent Files", tint = Color.White)
                 }
                 IconButton(onClick = { createLauncher.launch("new_file.txt") }) {
@@ -333,9 +404,14 @@ fun TextEditorApp(intent: Intent? = null) {
             DropdownMenu(historyExpanded, { historyExpanded = false }, Modifier.background(Color.DarkGray)) {
                 if (state.recentFiles.isEmpty()) {
                     DropdownMenuItem(text = { Text(text = "No recent files", color = Color.White) }, onClick = { historyExpanded = false })
-                }
-                state.recentFiles.forEach { uri ->
-                    DropdownMenuItem(text = { Text(text = uri.lastPathSegment ?: "file", color = Color.White) }, onClick = { state.open(uri); historyExpanded = false })
+                } else {
+                    state.recentFiles.forEach { u ->
+                        DropdownMenuItem(
+                            text = { Text(text = getFileName(context, u), color = Color.White) },
+                            onClick = { state.open(u); historyExpanded = false },
+                            modifier = Modifier.testTag("history_item")
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -343,8 +419,20 @@ fun TextEditorApp(intent: Intent? = null) {
     }
 }
 
-fun getFileName(context: Context, uri: Uri): String = 
-    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-        val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-        if (idx != -1 && cursor.moveToFirst()) cursor.getString(idx) else null
-    } ?: uri.lastPathSegment ?: "file"
+fun getFileName(context: Context, uri: Uri): String {
+    var result: String? = null
+    if (uri.scheme == "content") {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index != -1) result = cursor.getString(index)
+            }
+        }
+    }
+    if (result == null) {
+        result = uri.path
+        val cut = result?.lastIndexOf('/') ?: -1
+        if (cut != -1) result = result?.substring(cut + 1)
+    }
+    return result ?: "file"
+}
