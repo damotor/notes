@@ -73,6 +73,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -114,6 +115,7 @@ class EditorState(val context: Context, val scope: CoroutineScope) {
     val redoStack = mutableStateListOf<String>()
     var lastSnapshotText by mutableStateOf("")
     var openTrigger by mutableIntStateOf(0)
+    var scrollOffset by mutableIntStateOf(0)
 
     var searchVisible by mutableStateOf(false)
     var searchQuery by mutableStateOf("")
@@ -219,11 +221,16 @@ fun TextEditorApp(
     val clipboard = LocalClipboardManager.current
     var historyExpanded by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
+    var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
 
     LaunchedEffect(state.openTrigger) {
         if (state.openTrigger > 0) {
             scrollState.scrollTo(0)
         }
+    }
+
+    LaunchedEffect(scrollState.value) {
+        state.scrollOffset = scrollState.value
     }
 
     val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { it?.let { state.open(it) } }
@@ -286,6 +293,16 @@ fun TextEditorApp(
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
 
+    LaunchedEffect(state.searchIndex) {
+        if (state.searchIndex >= 0 && state.searchIndex < state.searchResults.size) {
+            val range = state.searchResults[state.searchIndex]
+            textLayoutResult?.let { layout ->
+                val top = layout.getCursorRect(range.first).top
+                scrollState.animateScrollTo(top.toInt())
+            }
+        }
+    }
+
     val vt = remember(state.searchQuery, state.searchResults, state.searchIndex, state.searchVisible) {
         if (state.searchVisible && state.searchQuery.isNotEmpty() && state.searchResults.isNotEmpty()) {
             VisualTransformation { text ->
@@ -322,6 +339,7 @@ fun TextEditorApp(
                     .padding(16.dp)
                     .focusRequester(focusRequester)
                     .testTag("editor"),
+                onTextLayout = { textLayoutResult = it },
                 textStyle = TextStyle(
                     color = Color.White,
                     fontSize = 18.sp,
