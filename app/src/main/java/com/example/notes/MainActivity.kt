@@ -214,6 +214,7 @@ fun TextEditorApp(
     val state = providedState ?: remember { EditorState(context, scope) }
 
     val focusRequester = remember { FocusRequester() }
+    val searchFocusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val clipboard = LocalClipboardManager.current
     var historyExpanded by remember { mutableStateOf(false) }
@@ -234,6 +235,13 @@ fun TextEditorApp(
         delay(300)
         focusRequester.requestFocus()
         keyboard?.show()
+    }
+
+    LaunchedEffect(state.searchVisible) {
+        if (state.searchVisible) {
+            searchFocusRequester.requestFocus()
+            keyboard?.show()
+        }
     }
 
     LaunchedEffect(state.value.text, state.uri) {
@@ -331,7 +339,7 @@ fun TextEditorApp(
         }
         Column(Modifier.fillMaxWidth().background(Color.Black).imePadding().navigationBarsPadding()) {
             if (state.searchVisible) Row(Modifier.fillMaxWidth().background(Color(0xFF222222)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextField(state.searchQuery, { state.searchQuery = it }, Modifier.weight(1f).testTag("search_field"), placeholder = { Text(text = "Search...") }, singleLine = true, colors = TextFieldDefaults.colors(focusedContainerColor = Color.Black, unfocusedContainerColor = Color.Black, focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                TextField(state.searchQuery, { state.searchQuery = it }, Modifier.weight(1f).testTag("search_field").focusRequester(searchFocusRequester), placeholder = { Text(text = "Search...") }, singleLine = true, colors = TextFieldDefaults.colors(focusedContainerColor = Color.Black, unfocusedContainerColor = Color.Black, focusedTextColor = Color.White, unfocusedTextColor = Color.White))
                 IconButton(onClick = { state.searchCaseSensitive = !state.searchCaseSensitive }) {
                     Icon(Icons.Default.TextFields, contentDescription = "Case Sensitive", tint = if (state.searchCaseSensitive) Color(0xFFFFCC00) else Color.White)
                 }

@@ -29,8 +29,9 @@ class ScrollToTopTest {
 
         composeTestRule.setContent {
             val scope = rememberCoroutineScope()
-            state = remember { EditorState(LocalContext.current, scope) }
-            TextEditorApp(state = state)
+            val context = LocalContext.current
+            state = remember { EditorState(context, scope) }
+            TextEditorApp(providedState = state)
         }
 
         // 1. Open document
