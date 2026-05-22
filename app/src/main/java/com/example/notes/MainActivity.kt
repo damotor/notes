@@ -394,8 +394,9 @@ fun TextEditorApp(
                     onClick = {
                         val s = state.value.selection
                         if (!s.collapsed) {
-                            clipboard.setText(AnnotatedString(state.value.text.substring(s.start, s.end)))
-                            state.onValueChange(state.value.copy(text = state.value.text.removeRange(s.start, s.end), selection = TextRange(s.start)))
+                            val textToCut = state.value.text.substring(s.min, s.max)
+                            clipboard.setText(AnnotatedString(textToCut))
+                            state.onValueChange(state.value.copy(text = state.value.text.removeRange(s.min, s.max), selection = TextRange(s.min)))
                         }
                     },
                     enabled = !state.value.selection.collapsed
@@ -406,7 +407,8 @@ fun TextEditorApp(
                     onClick = {
                         val s = state.value.selection
                         if (!s.collapsed) {
-                            clipboard.setText(AnnotatedString(state.value.text.substring(s.start, s.end)))
+                            val textToCopy = state.value.text.substring(s.min, s.max)
+                            clipboard.setText(AnnotatedString(textToCopy))
                         }
                     },
                     enabled = !state.value.selection.collapsed
@@ -417,7 +419,7 @@ fun TextEditorApp(
                     onClick = {
                         clipboard.getText()?.text?.let { p ->
                             val s = state.value.selection
-                            state.onValueChange(state.value.copy(text = state.value.text.replaceRange(s.start, s.end, p), selection = TextRange(state.value.selection.start + p.length)))
+                            state.onValueChange(state.value.copy(text = state.value.text.replaceRange(s.min, s.max, p), selection = TextRange(s.min + p.length)))
                         }
                     }
                 ) {
