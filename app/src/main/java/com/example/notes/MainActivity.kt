@@ -82,6 +82,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.LineBreak
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
@@ -222,6 +223,7 @@ fun TextEditorApp(
     var historyExpanded by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+    var viewportHeight by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(state.openTrigger) {
         if (state.openTrigger > 0) {
@@ -284,6 +286,26 @@ fun TextEditorApp(
         }
     }
 
+    LaunchedEffect(state.value.selection, textLayoutResult, viewportHeight) {
+        val selection = state.value.selection
+        val layout = textLayoutResult ?: return@LaunchedEffect
+        if (viewportHeight <= 0) return@LaunchedEffect
+
+        val cursorIndex = selection.end.coerceIn(0, state.value.text.length)
+        val cursorRect = layout.getCursorRect(cursorIndex)
+
+        val viewportTop = scrollState.value
+        val viewportBottom = viewportTop + viewportHeight
+
+        val margin = 100 // pixels
+
+        if (cursorRect.top < viewportTop + margin) {
+            scrollState.animateScrollTo((cursorRect.top - margin).toInt().coerceAtLeast(0))
+        } else if (cursorRect.bottom > viewportBottom - margin) {
+            scrollState.animateScrollTo((cursorRect.bottom - viewportHeight + margin).toInt())
+        }
+    }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val obs = LifecycleEventObserver { _, e ->
@@ -335,6 +357,7 @@ fun TextEditorApp(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
+                    .onGloballyPositioned { viewportHeight = it.size.height }
                     .verticalScroll(scrollState)
                     .padding(16.dp)
                     .focusRequester(focusRequester)
