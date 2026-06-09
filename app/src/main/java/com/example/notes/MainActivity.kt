@@ -392,11 +392,17 @@ fun TextEditorApp(
                 }
                 IconButton(
                     onClick = {
-                        val s = state.value.selection
+                        val currentValue = state.value
+                        val s = currentValue.selection
+                        val text = currentValue.text
                         if (!s.collapsed) {
-                            val textToCut = state.value.text.substring(s.min, s.max)
-                            clipboard.setText(AnnotatedString(textToCut))
-                            state.onValueChange(state.value.copy(text = state.value.text.removeRange(s.min, s.max), selection = TextRange(s.min)))
+                            val start = s.min.coerceIn(0, text.length)
+                            val end = s.max.coerceIn(0, text.length)
+                            if (start < end) {
+                                val textToCut = text.substring(start, end)
+                                clipboard.setText(AnnotatedString(textToCut))
+                                state.onValueChange(currentValue.copy(text = text.removeRange(start, end), selection = TextRange(start)))
+                            }
                         }
                     },
                     enabled = !state.value.selection.collapsed
@@ -405,10 +411,16 @@ fun TextEditorApp(
                 }
                 IconButton(
                     onClick = {
-                        val s = state.value.selection
+                        val currentValue = state.value
+                        val s = currentValue.selection
+                        val text = currentValue.text
                         if (!s.collapsed) {
-                            val textToCopy = state.value.text.substring(s.min, s.max)
-                            clipboard.setText(AnnotatedString(textToCopy))
+                            val start = s.min.coerceIn(0, text.length)
+                            val end = s.max.coerceIn(0, text.length)
+                            if (start < end) {
+                                val textToCopy = text.substring(start, end)
+                                clipboard.setText(AnnotatedString(textToCopy))
+                            }
                         }
                     },
                     enabled = !state.value.selection.collapsed
@@ -418,8 +430,12 @@ fun TextEditorApp(
                 IconButton(
                     onClick = {
                         clipboard.getText()?.text?.let { p ->
-                            val s = state.value.selection
-                            state.onValueChange(state.value.copy(text = state.value.text.replaceRange(s.min, s.max, p), selection = TextRange(s.min + p.length)))
+                            val currentValue = state.value
+                            val s = currentValue.selection
+                            val text = currentValue.text
+                            val start = s.min.coerceIn(0, text.length)
+                            val end = s.max.coerceIn(0, text.length)
+                            state.onValueChange(currentValue.copy(text = text.replaceRange(start, end, p), selection = TextRange(start + p.length)))
                         }
                     }
                 ) {

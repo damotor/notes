@@ -77,11 +77,45 @@ class ClipboardCrashTest {
             state.value = TextFieldValue("Hello World", selection = TextRange(11, 6))
         }
 
-        // Click Paste (we assume there's something in clipboard, 
-        // but the fix should handle the range regardless of whether p is empty or not 
-        // as long as the replacement happens)
-        // We can't easily mock clipboard in instrumented tests without some effort, 
-        // but we can at least trigger the action.
+        // Click Paste
         composeTestRule.onNodeWithContentDescription("Paste").performClick()
+    }
+
+    @Test
+    fun cutText_withOutOfBoundsSelection_doesNotCrash() {
+        lateinit var state: EditorState
+        composeTestRule.setContent {
+            val scope = rememberCoroutineScope()
+            val context = LocalContext.current
+            state = remember { EditorState(context, scope) }
+            TextEditorApp(providedState = state)
+        }
+
+        // Force an out-of-bounds selection (though TextFieldValue constructor might clamp it,
+        // our code now also clamps defensively).
+        composeTestRule.runOnIdle {
+            state.value = TextFieldValue("123", selection = TextRange(10, 20))
+        }
+
+        // Click Cut
+        composeTestRule.onNodeWithContentDescription("Cut").performClick()
+    }
+
+    @Test
+    fun copyText_withOutOfBoundsSelection_doesNotCrash() {
+        lateinit var state: EditorState
+        composeTestRule.setContent {
+            val scope = rememberCoroutineScope()
+            val context = LocalContext.current
+            state = remember { EditorState(context, scope) }
+            TextEditorApp(providedState = state)
+        }
+
+        composeTestRule.runOnIdle {
+            state.value = TextFieldValue("123", selection = TextRange(10, 20))
+        }
+
+        // Click Copy
+        composeTestRule.onNodeWithContentDescription("Copy").performClick()
     }
 }
