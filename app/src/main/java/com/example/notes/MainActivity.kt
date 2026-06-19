@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -398,8 +399,23 @@ fun TextEditorApp(
                 }
             }
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).background(Color(0xFF111111)).padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
-                IconButton(onClick = { historyExpanded = true }, modifier = Modifier.testTag("history_button")) {
-                    Icon(Icons.Default.History, contentDescription = "Recent Files", tint = Color.White)
+                Box {
+                    IconButton(onClick = { historyExpanded = true }, modifier = Modifier.testTag("history_button")) {
+                        Icon(Icons.Default.History, contentDescription = "Recent Files", tint = Color.White)
+                    }
+                    DropdownMenu(historyExpanded, { historyExpanded = false }, Modifier.background(Color.DarkGray)) {
+                        if (state.recentFiles.isEmpty()) {
+                            DropdownMenuItem(text = { Text(text = "No recent files", color = Color.White) }, onClick = { historyExpanded = false })
+                        } else {
+                            state.recentFiles.forEach { u ->
+                                DropdownMenuItem(
+                                    text = { Text(text = getFileName(context, u), color = Color.White) },
+                                    onClick = { state.open(u); historyExpanded = false },
+                                    modifier = Modifier.testTag("history_item")
+                                )
+                            }
+                        }
+                    }
                 }
                 IconButton(onClick = { createLauncher.launch("new_file.txt") }) {
                     Icon(Icons.AutoMirrored.Filled.NoteAdd, contentDescription = "New File", tint = Color.White)
@@ -468,19 +484,6 @@ fun TextEditorApp(
                     Icon(Icons.Default.Search, contentDescription = "Toggle Search", tint = Color.White)
                 }
             }
-            DropdownMenu(historyExpanded, { historyExpanded = false }, Modifier.background(Color.DarkGray)) {
-                if (state.recentFiles.isEmpty()) {
-                    DropdownMenuItem(text = { Text(text = "No recent files", color = Color.White) }, onClick = { historyExpanded = false })
-                } else {
-                    state.recentFiles.forEach { u ->
-                        DropdownMenuItem(
-                            text = { Text(text = getFileName(context, u), color = Color.White) },
-                            onClick = { state.open(u); historyExpanded = false },
-                            modifier = Modifier.testTag("history_item")
-                        )
-                    }
-                }
-            }
             Spacer(Modifier.height(8.dp))
         }
     }
@@ -488,14 +491,16 @@ fun TextEditorApp(
 
 fun getFileName(context: Context, uri: Uri): String {
     var result: String? = null
-    if (uri.scheme == "content") {
-        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (index != -1) result = cursor.getString(index)
+    try {
+        if (uri.scheme == "content") {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (index != -1) result = cursor.getString(index)
+                }
             }
         }
-    }
+    } catch (_: Exception) {}
     if (result == null) {
         result = uri.path
         val cut = result?.lastIndexOf('/') ?: -1
