@@ -113,9 +113,8 @@ class EditorState(val context: Context, val scope: CoroutineScope) {
     var uri by mutableStateOf<Uri?>(null)
     var isDirty by mutableStateOf(false)
     var hasBackedUp by mutableStateOf(false)
-    val undoStack = mutableStateListOf<String>()
-    val redoStack = mutableStateListOf<String>()
-    var lastSnapshotText by mutableStateOf("")
+    val undoStack = mutableStateListOf<TextFieldValue>()
+    val redoStack = mutableStateListOf<TextFieldValue>()
     var openTrigger by mutableIntStateOf(0)
     var scrollOffset by mutableIntStateOf(0)
 
@@ -130,6 +129,7 @@ class EditorState(val context: Context, val scope: CoroutineScope) {
 
     fun onValueChange(nv: TextFieldValue) {
         if (nv.text != value.text) {
+            undoStack.add(value)
             redoStack.clear()
             isDirty = true
         }
@@ -138,19 +138,17 @@ class EditorState(val context: Context, val scope: CoroutineScope) {
 
     fun undo() {
         if (undoStack.isEmpty()) return
-        val last = undoStack.removeAt(undoStack.size - 1)
-        redoStack.add(value.text)
-        value = value.copy(text = last, selection = TextRange(last.length))
-        lastSnapshotText = last
+        val prev = undoStack.removeAt(undoStack.size - 1)
+        redoStack.add(value)
+        value = prev
         isDirty = true
     }
 
     fun redo() {
         if (redoStack.isEmpty()) return
         val next = redoStack.removeAt(redoStack.size - 1)
-        undoStack.add(value.text)
-        value = value.copy(text = next, selection = TextRange(next.length))
-        lastSnapshotText = next
+        undoStack.add(value)
+        value = next
         isDirty = true
     }
 
@@ -176,7 +174,6 @@ class EditorState(val context: Context, val scope: CoroutineScope) {
             context.contentResolver.openInputStream(u)?.use { input ->
                 val content = input.bufferedReader().readText()
                 value = TextFieldValue(content)
-                lastSnapshotText = content
                 uri = u
                 openTrigger++
                 isDirty = false
@@ -275,15 +272,6 @@ fun TextEditorApp(
         } else {
             state.searchResults = emptyList()
             state.searchIndex = -1
-        }
-    }
-
-    LaunchedEffect(state.value.text) {
-        if (state.value.text != state.lastSnapshotText) {
-            delay(2000)
-            state.undoStack.add(state.lastSnapshotText)
-            if (state.undoStack.size > 50) state.undoStack.removeAt(0)
-            state.lastSnapshotText = state.value.text
         }
     }
 
