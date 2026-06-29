@@ -62,6 +62,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -95,6 +96,8 @@ import com.example.notes.ui.theme.NotesTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -260,7 +263,7 @@ fun TextEditorApp(
 
     LaunchedEffect(state.value.text, state.searchQuery, state.searchCaseSensitive, state.searchVisible) {
         if (state.searchVisible && state.searchQuery.isNotEmpty()) {
-            delay(1000)
+            delay(300)
             val res = mutableListOf<IntRange>()
             var idx = state.value.text.indexOf(state.searchQuery, 0, !state.searchCaseSensitive)
             while (idx >= 0 && res.size < 500) {
@@ -275,10 +278,13 @@ fun TextEditorApp(
         }
     }
 
+    var lastSelection by remember { mutableStateOf(state.value.selection) }
     LaunchedEffect(state.value.selection, textLayoutResult, viewportHeight) {
         val selection = state.value.selection
         val layout = textLayoutResult ?: return@LaunchedEffect
         if (viewportHeight <= 0) return@LaunchedEffect
+        if (selection == lastSelection && !state.isDirty) return@LaunchedEffect
+        lastSelection = selection
 
         val cursorIndex = selection.end.coerceIn(0, state.value.text.length)
         val cursorRect = layout.getCursorRect(cursorIndex)
@@ -304,13 +310,17 @@ fun TextEditorApp(
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
 
-    LaunchedEffect(state.searchIndex) {
+    LaunchedEffect(state.searchIndex, state.searchResults) {
         if (state.searchIndex >= 0 && state.searchIndex < state.searchResults.size) {
             val range = state.searchResults[state.searchIndex]
-            textLayoutResult?.let { layout ->
-                val top = layout.getCursorRect(range.first).top
-                scrollState.animateScrollTo(top.toInt())
+            val layout = textLayoutResult ?: snapshotFlow { textLayoutResult }.filterNotNull().first()
+            val cursorRect = layout.getCursorRect(range.first)
+            val targetScroll = if (viewportHeight > 0) {
+                (cursorRect.top - viewportHeight / 3).toInt().coerceAtLeast(0)
+            } else {
+                cursorRect.top.toInt()
             }
+            scrollState.animateScrollTo(targetScroll)
         }
     }
 
