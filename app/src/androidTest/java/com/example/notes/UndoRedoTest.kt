@@ -12,6 +12,12 @@ class UndoRedoTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
+    @org.junit.Before
+    fun setup() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        context.getSharedPreferences("prefs", android.content.Context.MODE_PRIVATE).edit().clear().commit()
+    }
+
     @Test
     fun undoRedo_worksCharacterByCharacter() {
         composeTestRule.setContent {
@@ -29,19 +35,19 @@ class UndoRedoTest {
         editor.assertTextEquals("AB")
 
         // Undo once (should be "A")
-        composeTestRule.onNodeWithContentDescription("Undo").performClick()
+        composeTestRule.onNodeWithTag("undo_button").performClick()
         editor.assertTextEquals("A")
 
         // Undo again (should be "")
-        composeTestRule.onNodeWithContentDescription("Undo").performClick()
+        composeTestRule.onNodeWithTag("undo_button").performClick()
         composeTestRule.onNodeWithText("Start typing...").assertIsDisplayed()
 
         // Redo once (should be "A")
-        composeTestRule.onNodeWithContentDescription("Redo").performClick()
+        composeTestRule.onNodeWithTag("redo_button").performClick()
         editor.assertTextEquals("A")
 
         // Redo again (should be "AB")
-        composeTestRule.onNodeWithContentDescription("Redo").performClick()
+        composeTestRule.onNodeWithTag("redo_button").performClick()
         editor.assertTextEquals("AB")
     }
 
@@ -76,7 +82,7 @@ class UndoRedoTest {
         editor.performTextInput("!")
         
         // Undo
-        composeTestRule.onNodeWithContentDescription("Undo").performClick()
+        composeTestRule.onNodeWithTag("undo_button").performClick()
         
         // If it scrolled to bottom, then TOP of text might not be visible if we had many lines.
         // But the previous fix already uses the saved TextFieldValue which includes selection.

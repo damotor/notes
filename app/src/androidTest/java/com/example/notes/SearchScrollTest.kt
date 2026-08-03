@@ -15,6 +15,12 @@ class SearchScrollTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
+    @org.junit.Before
+    fun setup() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        context.getSharedPreferences("prefs", android.content.Context.MODE_PRIVATE).edit().clear().commit()
+    }
+
     @Test
     fun searchingForMultipleTerms_scrollsToEach() {
         lateinit var state: EditorState

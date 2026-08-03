@@ -16,6 +16,12 @@ class HistoryCrashTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
+    @org.junit.Before
+    fun setup() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        context.getSharedPreferences("prefs", android.content.Context.MODE_PRIVATE).edit().clear().commit()
+    }
+
     @Test
     fun tappingHistoryIcon_withInvalidUri_doesNotCrash() {
         lateinit var state: EditorState

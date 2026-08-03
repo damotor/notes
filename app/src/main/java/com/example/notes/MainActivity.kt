@@ -160,11 +160,9 @@ class EditorState(val context: Context, val scope: CoroutineScope) {
         val content = value.text
         scope.launch(Dispatchers.IO) {
             try {
-                if (!hasBackedUp) {
-                    context.contentResolver.openInputStream(u)?.use { input ->
-                        File(context.filesDir, "${getFileName(context, u)}~").writeBytes(input.readBytes())
-                        hasBackedUp = true
-                    }
+                context.contentResolver.openInputStream(u)?.use { input ->
+                    File(context.filesDir, "${getFileName(context, u)}~").writeBytes(input.readBytes())
+                    hasBackedUp = true
                 }
                 context.contentResolver.openOutputStream(u, "wt")?.use { it.write(content.toByteArray()) }
                 withContext(Dispatchers.Main) { isDirty = false }
@@ -350,49 +348,57 @@ fun TextEditorApp(
             backgroundColor = Color.White.copy(alpha = 0.4f)
         )
         CompositionLocalProvider(LocalTextSelectionColors provides customTextSelectionColors) {
-            BasicTextField(
-                value = state.value,
-                onValueChange = { state.onValueChange(it) },
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .onGloballyPositioned { viewportHeight = it.size.height }
-                    .verticalScroll(scrollState)
-                    .padding(16.dp)
-                    .focusRequester(focusRequester)
-                    .testTag("editor"),
-                onTextLayout = { textLayoutResult = it },
-                textStyle = TextStyle(
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    lineBreak = LineBreak.Paragraph
-                ),
-                cursorBrush = SolidColor(Color.White),
-                visualTransformation = vt,
-                decorationBox = { innerTextField ->
-                    if (state.value.text.isEmpty()) {
-                        Text(text = "Start typing...", color = Color.Gray, fontSize = 18.sp)
+            Box(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned { viewportHeight = it.size.height }) {
+                BasicTextField(
+                    value = state.value,
+                    onValueChange = { state.onValueChange(it) },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(scrollState)
+                        .padding(16.dp)
+                        .focusRequester(focusRequester)
+                        .testTag("editor"),
+                    onTextLayout = { textLayoutResult = it },
+                    textStyle = TextStyle(
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        lineBreak = LineBreak.Paragraph
+                    ),
+                    cursorBrush = SolidColor(Color.White),
+                    visualTransformation = vt,
+                    decorationBox = { innerTextField ->
+                        if (state.value.text.isEmpty()) {
+                            Text(text = "Start typing...", color = Color.Gray, fontSize = 18.sp)
+                        }
+                        innerTextField()
                     }
-                    innerTextField()
-                }
-            )
+                )
+            }
         }
         Column(Modifier.fillMaxWidth().background(Color.Black).imePadding().navigationBarsPadding()) {
             if (state.searchVisible) Row(Modifier.fillMaxWidth().background(Color(0xFF222222)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextField(state.searchQuery, { state.searchQuery = it }, Modifier.weight(1f).testTag("search_field").focusRequester(searchFocusRequester), placeholder = { Text(text = "Search...") }, singleLine = true, colors = TextFieldDefaults.colors(focusedContainerColor = Color.Black, unfocusedContainerColor = Color.Black, focusedTextColor = Color.White, unfocusedTextColor = Color.White))
-                IconButton(onClick = { state.searchCaseSensitive = !state.searchCaseSensitive }) {
+                IconButton(onClick = { state.searchCaseSensitive = !state.searchCaseSensitive }, modifier = Modifier.testTag("search_case_button")) {
                     Icon(Icons.Default.TextFields, contentDescription = "Case Sensitive", tint = if (state.searchCaseSensitive) Color(0xFFFFCC00) else Color.White)
                 }
                 if (state.searchResults.isNotEmpty()) {
-                    Text(text = "${state.searchIndex + 1}/${state.searchResults.size}", color = Color.White, modifier = Modifier.padding(horizontal = 8.dp))
+                    Text(text = "${state.searchIndex + 1}/${state.searchResults.size}", color = Color.White, modifier = Modifier.padding(horizontal = 8.dp).testTag("search_results_count"))
                 }
-                IconButton(onClick = { state.searchIndex = (state.searchIndex - 1 + state.searchResults.size) % state.searchResults.size }) {
-                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Previous", tint = Color.White)
+                IconButton(
+                    onClick = { state.searchIndex = (state.searchIndex - 1 + state.searchResults.size) % state.searchResults.size },
+                    enabled = state.searchResults.isNotEmpty(),
+                    modifier = Modifier.testTag("search_prev_button")
+                ) {
+                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Previous", tint = if (state.searchResults.isNotEmpty()) Color.White else Color.Gray)
                 }
-                IconButton(onClick = { state.searchIndex = (state.searchIndex + 1) % state.searchResults.size }) {
-                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Next", tint = Color.White)
+                IconButton(
+                    onClick = { state.searchIndex = (state.searchIndex + 1) % state.searchResults.size },
+                    enabled = state.searchResults.isNotEmpty(),
+                    modifier = Modifier.testTag("search_next_button")
+                ) {
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Next", tint = if (state.searchResults.isNotEmpty()) Color.White else Color.Gray)
                 }
-                IconButton(onClick = { state.searchVisible = false; state.searchQuery = "" }) {
+                IconButton(onClick = { state.searchVisible = false; state.searchQuery = "" }, modifier = Modifier.testTag("search_close_button")) {
                     Icon(Icons.Default.Close, contentDescription = "Close Search", tint = Color.White)
                 }
             }
@@ -415,16 +421,16 @@ fun TextEditorApp(
                         }
                     }
                 }
-                IconButton(onClick = { createLauncher.launch("new_file.txt") }) {
+                IconButton(onClick = { createLauncher.launch("new_file.txt") }, modifier = Modifier.testTag("new_file_button")) {
                     Icon(Icons.AutoMirrored.Filled.NoteAdd, contentDescription = "New File", tint = Color.White)
                 }
-                IconButton(onClick = { openLauncher.launch(arrayOf("*/*")) }) {
+                IconButton(onClick = { openLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.testTag("open_file_button")) {
                     Icon(Icons.Default.FileOpen, contentDescription = "Open File", tint = Color.White)
                 }
-                IconButton(onClick = { state.undo() }, enabled = state.undoStack.isNotEmpty()) {
+                IconButton(onClick = { state.undo() }, enabled = state.undoStack.isNotEmpty(), modifier = Modifier.testTag("undo_button")) {
                     Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo", tint = if (state.undoStack.isNotEmpty()) Color.White else Color.Gray)
                 }
-                IconButton(onClick = { state.redo() }, enabled = state.redoStack.isNotEmpty()) {
+                IconButton(onClick = { state.redo() }, enabled = state.redoStack.isNotEmpty(), modifier = Modifier.testTag("redo_button")) {
                     Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo", tint = if (state.redoStack.isNotEmpty()) Color.White else Color.Gray)
                 }
                 IconButton(
@@ -442,7 +448,8 @@ fun TextEditorApp(
                             }
                         }
                     },
-                    enabled = !state.value.selection.collapsed
+                    enabled = !state.value.selection.collapsed,
+                    modifier = Modifier.testTag("cut_button")
                 ) {
                     Icon(Icons.Default.ContentCut, contentDescription = "Cut", tint = if (!state.value.selection.collapsed) Color.White else Color.Gray)
                 }
@@ -460,7 +467,8 @@ fun TextEditorApp(
                             }
                         }
                     },
-                    enabled = !state.value.selection.collapsed
+                    enabled = !state.value.selection.collapsed,
+                    modifier = Modifier.testTag("copy_button")
                 ) {
                     Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = if (!state.value.selection.collapsed) Color.White else Color.Gray)
                 }
@@ -474,11 +482,12 @@ fun TextEditorApp(
                             val end = s.max.coerceIn(0, text.length)
                             state.onValueChange(currentValue.copy(text = text.replaceRange(start, end, p), selection = TextRange(start + p.length)))
                         }
-                    }
+                    },
+                    modifier = Modifier.testTag("paste_button")
                 ) {
                     Icon(Icons.Default.ContentPaste, contentDescription = "Paste", tint = Color.White)
                 }
-                IconButton(onClick = { state.searchVisible = !state.searchVisible }) {
+                IconButton(onClick = { state.searchVisible = !state.searchVisible }, modifier = Modifier.testTag("search_toggle_button")) {
                     Icon(Icons.Default.Search, contentDescription = "Toggle Search", tint = Color.White)
                 }
             }

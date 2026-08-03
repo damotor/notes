@@ -17,6 +17,12 @@ class ClipboardCrashTest {
     @get:Rule
     val composeTestRule = createComposeRule()
 
+    @org.junit.Before
+    fun setup() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        context.getSharedPreferences("prefs", android.content.Context.MODE_PRIVATE).edit().clear().commit()
+    }
+
     @Test
     fun cutText_withReverseSelection_doesNotCrash() {
         lateinit var state: EditorState
@@ -33,7 +39,7 @@ class ClipboardCrashTest {
         }
 
         // Click Cut
-        composeTestRule.onNodeWithContentDescription("Cut").performClick()
+        composeTestRule.onNodeWithTag("cut_button").performClick()
 
         // Verify text was cut and no crash occurred
         composeTestRule.onNodeWithText("Hello ").assertIsDisplayed()
@@ -56,7 +62,7 @@ class ClipboardCrashTest {
         }
 
         // Click Copy
-        composeTestRule.onNodeWithContentDescription("Copy").performClick()
+        composeTestRule.onNodeWithTag("copy_button").performClick()
 
         // Verify text is still there and no crash occurred
         composeTestRule.onNodeWithText("Hello World").assertIsDisplayed()
@@ -78,7 +84,7 @@ class ClipboardCrashTest {
         }
 
         // Click Paste
-        composeTestRule.onNodeWithContentDescription("Paste").performClick()
+        composeTestRule.onNodeWithTag("paste_button").performClick()
     }
 
     @Test
@@ -91,14 +97,13 @@ class ClipboardCrashTest {
             TextEditorApp(providedState = state)
         }
 
-        // Force an out-of-bounds selection (though TextFieldValue constructor might clamp it,
-        // our code now also clamps defensively).
+        // Force an out-of-bounds selection
         composeTestRule.runOnIdle {
             state.value = TextFieldValue("123", selection = TextRange(10, 20))
         }
 
         // Click Cut
-        composeTestRule.onNodeWithContentDescription("Cut").performClick()
+        composeTestRule.onNodeWithTag("cut_button").performClick()
     }
 
     @Test
@@ -116,6 +121,6 @@ class ClipboardCrashTest {
         }
 
         // Click Copy
-        composeTestRule.onNodeWithContentDescription("Copy").performClick()
+        composeTestRule.onNodeWithTag("copy_button").performClick()
     }
 }
